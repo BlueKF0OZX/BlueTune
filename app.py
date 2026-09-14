@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from analysis import parse_stats, assess
@@ -14,6 +15,14 @@ ROOT = Path(__file__).resolve().parent
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 5
+
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionError, TimeoutError):
+            pass
+
     def log_message(self, *_):
         pass
 
@@ -26,7 +35,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except ConnectionError:
+            pass
 
     def trusted(self):
         host = self.headers.get("Host", "")
@@ -49,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (ROOT / "web" / name).read_bytes(), kind)
         if self.path == "/api/status":
             return self.send(200, dict(mode="live" if self.server.collector else "demo", device=self.server.device,
-                                      token=self.server.token, version="0.1.1-preview"))
+                                      token=self.server.token, version="0.1.2-preview"))
         self.send(404, {"error": "Page not found."})
 
     def do_POST(self):
@@ -58,6 +70,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("X-BlueTune-Token") != self.server.token:
             return self.send(403, {"error": "Reload BlueTune before trying again."})
         try:
+            if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
+                self.close_connection = True
+                return self.send(400, {"error": "Provide a single Content-Length for this request."})
             length = int(self.headers.get("Content-Length", "0"))
             if length < 0 or length > 70000:
                 return self.send(413, {"error": "This sample is too large."})
@@ -82,8 +97,40 @@ class Handler(BaseHTTPRequestHandler):
             self.send(400, {"error": str(exc)})
 
 
+class BlueTuneServer(ThreadingHTTPServer):
+    """Bound simultaneous clients; slow requests cannot create unlimited threads."""
+    daemon_threads = True
+
+    def __init__(self, address, handler):
+        self.slots = threading.BoundedSemaphore(8)
+        super().__init__(address, handler)
+
+    def process_request(self, request, address):
+        if not self.slots.acquire(blocking=False):
+            try:
+                request.settimeout(1)
+                body = b'{"error":"BlueTune is busy. Wait a moment and retry."}'
+                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: ' + str(len(body)).encode() + b'\r\nConnection: close\r\n\r\n' + body)
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            super().process_request_thread(request, address)
+        finally:
+            self.slots.release()
+
+
 def make_server(port=8091, collector=None):
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = BlueTuneServer(("127.0.0.1", port), Handler)
     server.collector = collector
     server.device = collector.device if collector else None
     server.token = secrets.token_urlsafe(32)

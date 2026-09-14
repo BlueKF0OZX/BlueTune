@@ -2,6 +2,7 @@
 import re
 import subprocess
 import threading
+from contextlib import contextmanager
 from analysis import parse_stats
 
 ALLOWED = frozenset(("susb active", "susb show settings", "susb tune menu-support Y"))
@@ -42,8 +43,17 @@ class Collector:
         if self.device_from(output) != self.device:
             raise ValueError("The active SimpleUSB device does not match this session. Select the intended device in ASL3, then retry. USBRadio is not supported in this first version.")
 
+    @contextmanager
+    def reading(self):
+        if not self.lock.acquire(blocking=False):
+            raise ValueError("Another BlueTune reading is in progress. Wait a moment and retry.")
+        try:
+            yield
+        finally:
+            self.lock.release()
+
     def sample(self):
-        with self.lock:
+        with self.reading():
             self.active()
             raw = self.command("susb tune menu-support Y")
             samples = parse_stats(raw)
@@ -51,7 +61,7 @@ class Collector:
             return samples[-1]
 
     def settings(self):
-        with self.lock:
+        with self.reading():
             self.active()
             raw = self.command("susb show settings")
             self.active()

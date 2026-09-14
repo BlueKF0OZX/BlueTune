@@ -1,9 +1,10 @@
 # BlueTune
 
-Guided receive-audio checkups for AllStarLink 3. **0.1.1-preview**.
+Guided receive-audio checkups for AllStarLink 3. **0.1.2-preview**.
 
 **First time here? Follow [Your first BlueTune checkup](docs/FIRST_CHECKUP.md).**
 It covers the prerequisite check, live access, SSH tunnel, first sample, and removal.
+See [readiness and remaining limits](docs/READINESS.md) for the tested scope.
 
 ![BlueTune showing synthetic demo readings](docs/preview.png)
 
