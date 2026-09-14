@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let connection, current = null, baseline = null, running = false, canceled = false;
+let connection, current = null, baseline = null, running = false, canceled = false, confirmationRevision = 0;
 const examples = {
   balanced: [-8, -21, -58, -15, 0], clipping: [-0.2, -8, -40, -3, 18], quiet: [-78, -86, -96, -82, 0]
 };
@@ -30,6 +30,7 @@ function prepare() {
   clearCurrent(); error('');
 }
 function clearCurrent() {
+  confirmationRevision++;
   current = null;
   $('peak').textContent = $('average').textContent = $('clips').textContent = $('count').textContent = '—';
   $('sample-badge').textContent = 'AWAITING SAMPLE'; $('meter-fill').style.width = '100%'; $('meter-fill').style.clipPath = 'inset(0 100% 0 0)'; $('meter').removeAttribute('aria-valuenow');
@@ -84,6 +85,7 @@ $('measure').addEventListener('click', async () => {
   if (running || !connection) return;
   error(''); clearCurrent(); running = true; canceled = false;
   const type = source(), label = $('session-name').value.trim() || 'Receive check';
+  if (type === 'live') $('speech').checked = false;
   $('measure').disabled = $('scenario').disabled = true; $('stop').hidden = type !== 'live';
   try {
     let text;
@@ -105,7 +107,7 @@ $('measure').addEventListener('click', async () => {
     }
     const result = await api('/api/analyze',{text, speech_confirmed:type === 'demo' || $('speech').checked});
     current = {...result, source:type, device:type === 'live' ? connection.device : null, label, created_at:new Date().toISOString(), version:connection.version};
-    render(); $('progress').textContent = type === 'demo' ? 'Demo complete · synthetic readings, not your radio.' : type === 'imported' ? 'Imported sample analyzed · original collection time is unknown.' : 'Measurement complete. Confirm your speech sample if needed below.';
+    render(); $('progress').textContent = type === 'demo' ? 'Demo complete · synthetic readings, not your radio.' : type === 'imported' ? 'Imported sample analyzed · original collection time is unknown.' : 'Measurement complete. Confirm that you spoke during this sample using the checkbox.';
   } catch(e) { error(e.name === 'AbortError' ? 'The connection timed out. Checkup was discarded; please retry.' : e.message); $('progress').textContent='Checkup incomplete. No result was saved.'; }
   finally { running=false; $('measure').disabled=$('scenario').disabled=false; $('stop').hidden=true; }
 });
@@ -113,10 +115,11 @@ $('stop').addEventListener('click',()=>{canceled=true; $('progress').textContent
 $('speech').addEventListener('change', async()=>{
   if (!current || running || current.source === 'demo') return;
   const prior = current; $('save').disabled = $('export').disabled = true;
+  const revision = ++confirmationRevision;
   try {
     const result = await api('/api/analyze',{text:prior.samples.map(line).join('\n'),speech_confirmed:$('speech').checked});
-    if (current === prior) { current={...prior,...result}; render(); }
-  } catch(e) { clearCurrent(); error(e.message); }
+    if (current === prior && revision === confirmationRevision) { current={...prior,...result}; render(); }
+  } catch(e) { if (revision === confirmationRevision) { clearCurrent(); error(e.message); } }
 });
 $('save').addEventListener('click',()=>{baseline=structuredClone(current); compare();});
 $('clear').addEventListener('click',()=>{baseline=null; compare();});
