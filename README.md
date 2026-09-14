@@ -1,6 +1,9 @@
 # BlueTune
 
-Guided receive-audio checkups for AllStarLink 3. **0.1.0-preview**.
+Guided receive-audio checkups for AllStarLink 3. **0.1.1-preview**.
+
+**First time here? Follow [Your first BlueTune checkup](docs/FIRST_CHECKUP.md).**
+It covers the prerequisite check, live access, SSH tunnel, first sample, and removal.
 
 ![BlueTune showing synthetic demo readings](docs/preview.png)
 
@@ -15,11 +18,11 @@ Requires Git and Python 3.11 or newer:
 ```sh
 git clone https://github.com/BlueKF0OZX/BlueTune.git
 cd BlueTune
-python3 app.py
+python3 start.py
 ```
 
-Open **http://127.0.0.1:8091**. On Windows use `python app.py` if Python is
-installed under that name. Stop with Ctrl+C.
+Open **http://127.0.0.1:8091**. On Windows use `python start.py` if Python is
+installed under that name (use `python start.py`). Stop with Ctrl+C.
 
 The default workspace is explicitly **demo mode**, with synthetic examples for
 headroom, overload, and very little input. You can also paste real ASL3
@@ -30,19 +33,21 @@ needed by the app.
 
 ## Experimental live SimpleUSB adapter
 
-Run on the ASL3 machine, with an account already authorized to access Asterisk's
-control socket. The fixed executable is `/usr/sbin/asterisk`. BlueTune does not
-install permissions or call sudo. Do not run the web app as root to work around
-a socket-access error.
+Run on the ASL3 machine as your normal account. The launcher first tries direct
+Asterisk access, then existing noninteractive sudo permission for three fixed
+read-only commands. It does not install or broaden permissions. The web app
+refuses to run as root. The fixed executable is `/usr/sbin/asterisk`.
 
 1. In ASL3, select the intended SimpleUSB device. Close other tuning sessions.
 2. Start BlueTune with its exact device/stanza name:
 
 ```sh
-python3 app.py --live --device 1999
+bash start.sh --check --device 1999
+bash start.sh --live --device 1999
 ```
 
-`1999` is an example; replace it with your device name. BlueTune checks that
+`1999` is an example; replace it with your device name. Omit `--device` to use
+the active SimpleUSB device reported by ASL3. BlueTune checks that
 the active name matches. It does not change the selected device itself.
 Open the app, start a 10-second measurement, and speak into the node receiver
 under appropriate test conditions. Confirm the speech checkbox. A failed or
@@ -63,6 +68,10 @@ The adapter runs only these literal commands:
 - `asterisk -rx 'susb active'`
 - `asterisk -rx 'susb tune menu-support Y'`
 - `asterisk -rx 'susb show settings'` (only for a requested reference export)
+
+When using existing sudo access, each command is prefixed with `/usr/bin/sudo -n --`.
+No browser-supplied command is executed. `start.sh --check` collects a read-only
+probe before reporting ready; quiet input is not a failed prerequisite check.
 
 Unsupported output fails closed. USBRadio support is not implemented. Multiple
 simultaneous tuning tools are not supported: the CLI's global device selection
@@ -125,6 +134,24 @@ was not independently attributed to speech versus a key/unkey transient.
 Required next checks: a listening comparison with a consenting operator,
 deployment of the live adapter, actual device association, no-data/device-loss
 behavior, observation freshness, and comparison with the ASL tuning display.
+
+### First-user rehearsal (0.1.1 preview)
+
+The candidate was copied into a fresh temporary folder on that existing ASL3
+node, without installing a service or changing permissions/configuration. All
+23 backend tests passed on Windows and on the node's Python 3.11.2. The startup
+check detected the active SimpleUSB device through existing sudo permission;
+a deliberately mismatched device was rejected.
+
+The real live web adapter ran as the normal login account on loopback, through
+an SSH tunnel using a different local port. A browser measurement completed
+with nine actual quiet-input observations and remained inconclusive without
+speech confirmation. Cancellation discarded a partial run. This supplements
+the earlier voice/import check and verifies the basic live collection path on
+one installation. It is **not** a clean-OS installation test or a live speech
+quality test. Optional sudoers installation, other hardware/drivers/versions,
+device loss and stale-audio detection still need separate checks. New users
+should follow [the first-checkup guide](docs/FIRST_CHECKUP.md).
 
 ## Sources inspected 2026-09-14
 

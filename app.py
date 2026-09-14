@@ -1,6 +1,8 @@
 """BlueTune 0.1 preview: standard-library web app, loopback only."""
 import argparse
 import json
+import os
+import re
 import secrets
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,12 +30,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def trusted(self):
         host = self.headers.get("Host", "")
-        valid = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-        if host not in valid:
+        match = re.fullmatch(r"(127\.0\.0\.1|localhost):(\d{1,5})", host)
+        if not match or not 1 <= int(match[2]) <= 65535:
             self.send(403, {"error": "Open BlueTune through its localhost address."})
             return False
         origin = self.headers.get("Origin")
-        if origin and origin not in {"http://" + x for x in valid}:
+        if origin and origin != "http://" + host:
             self.send(403, {"error": "This request came from another website."})
             return False
         return True
@@ -47,7 +49,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (ROOT / "web" / name).read_bytes(), kind)
         if self.path == "/api/status":
             return self.send(200, dict(mode="live" if self.server.collector else "demo", device=self.server.device,
-                                      token=self.server.token, version="0.1.0-preview"))
+                                      token=self.server.token, version="0.1.1-preview"))
         self.send(404, {"error": "Page not found."})
 
     def do_POST(self):
@@ -88,21 +90,31 @@ def make_server(port=8091, collector=None):
     return server
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BlueTune receive-audio checkup")
-    parser.add_argument("--port", type=int, default=8091)
-    parser.add_argument("--live", action="store_true", help="Enable read-only SimpleUSB measurements")
-    parser.add_argument("--device", help="Expected active SimpleUSB device name")
-    args = parser.parse_args()
-    try:
-        collector = Collector(device=args.device) if args.live else None
-        server = make_server(args.port, collector)
-    except (ValueError, OSError) as exc:
-        parser.error(str(exc))
-    print(f"BlueTune {'LIVE / SimpleUSB' if args.live else 'DEMO'} — http://127.0.0.1:{server.server_port}", flush=True)
+def serve(port=8091, collector=None):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        raise ValueError("Start BlueTune as your normal login account, without sudo.")
+    server = make_server(port, collector)
+    print(f"BlueTune {'LIVE / SimpleUSB ' + collector.device if collector else 'DEMO'} - http://127.0.0.1:{server.server_port}", flush=True)
+    print("Keep this terminal open. Press Ctrl+C to stop BlueTune.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="BlueTune receive-audio checkup")
+    parser.add_argument("--port", type=int, default=8091)
+    parser.add_argument("--live", action="store_true", help="Enable read-only SimpleUSB measurements")
+    parser.add_argument("--device", help="Expected active SimpleUSB device name")
+    parser.add_argument("--sudo", action="store_true", help="Use existing noninteractive sudo permission for the fixed read-only commands")
+    args = parser.parse_args()
+    try:
+        collector = Collector(device=args.device, use_sudo=args.sudo) if args.live else None
+        if collector:
+            collector.sample()
+        serve(args.port, collector)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
