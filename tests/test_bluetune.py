@@ -121,6 +121,15 @@ class HttpTests(unittest.TestCase):
             self.request('/api/sample',{}, {'X-BlueTune-Token':self.server.token})
         self.assertEqual(error.exception.code,409)
 
+    def test_tunnel_port_and_origin(self):
+        headers = {'Host':'localhost:8093','Origin':'http://localhost:8093','X-BlueTune-Token':self.server.token}
+        with self.request('/api/analyze',dict(text=GOOD),headers) as response:
+            self.assertEqual(response.status,200)
+        headers['Origin']='http://localhost:8094'
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.request('/api/analyze',dict(text=GOOD),headers)
+        self.assertEqual(error.exception.code,403)
+
     def test_invalid_payload(self):
         for body in [[],dict(text=GOOD,speech_confirmed='true'),dict(text='RxAudioStats: incomplete')]:
             if isinstance(body,dict) and body.get('speech_confirmed'):
